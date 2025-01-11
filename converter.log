@@ -1,0 +1,36 @@
+2025-01-11 09:45:25,855 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:45:25,875 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:45:25,875 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 09:47:17,551 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:47:17,569 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:47:17,569 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 09:47:17,569 INFO:Detected input features: [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:47:17,569 INFO:Detected output features: [('output', ImageType(name=None, shape=(0, 1, 672, 672), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:47:17,569 ERROR:Error initializing NeuralNetworkBuilder: Error processing feature list: List of feature names must either be a list of strings, or a list of (name, datatypes.Array instance) tuples.
+features = [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:47:17,569 ERROR:Ensure that 'input_features' and 'output_features' are lists of tuples in the format (name, FeatureType).
+2025-01-11 09:54:53,194 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:54:53,210 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:54:53,210 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 09:55:07,995 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:55:08,010 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:55:08,011 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 09:55:08,011 INFO:Detected input features: [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:08,011 INFO:Detected output features: [('output', ImageType(name=None, shape=(0, 1, 672, 672), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:08,011 ERROR:Error initializing NeuralNetworkBuilder: Error processing feature list: List of feature names must either be a list of strings, or a list of (name, datatypes.Array instance) tuples.
+features = [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:08,011 ERROR:Ensure that 'input_features' and 'output_features' are lists of tuples in the format (name, FeatureType).
+2025-01-11 09:55:56,933 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:55:56,948 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:55:56,949 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 09:55:56,949 INFO:Detected input features: [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:56,949 INFO:Detected output features: [('output', ImageType(name=None, shape=(0, 1, 672, 672), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:56,949 ERROR:Error initializing NeuralNetworkBuilder: Error processing feature list: List of feature names must either be a list of strings, or a list of (name, datatypes.Array instance) tuples.
+features = [('input', ImageType(name=None, shape=(0, 1, 224, 224), scale=1.0, bias=[0.0, 0.0, 0.0], color_layout=ColorLayout.RGB, channel_first=None))]
+2025-01-11 09:55:56,949 ERROR:Ensure that 'input_features' and 'output_features' are lists of tuples in the format (name, FeatureType).
+2025-01-11 09:59:26,156 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 09:59:26,173 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 09:59:26,173 INFO:Extracted 12 nodes from the ONNX model.
+2025-01-11 10:00:08,240 INFO:Method registry loaded from '/Users/z/Documents/onnxcoreml/3/nnBuilderMethods.json'.
+2025-01-11 10:00:08,250 INFO:ONNX model loaded and validated from '/Users/z/Documents/modelsOther/super-resolution-10.onnx'.
+2025-01-11 10:00:08,250 INFO:Extracted 12 nodes from the ONNX model.
