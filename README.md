@@ -20,4 +20,3 @@ The three main ideas here are:
 >every layer can be manually modified, changed or skipped  
 
 
-A mac is a mac and it needs to stay comfortable.
