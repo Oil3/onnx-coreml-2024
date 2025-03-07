@@ -86,18 +86,18 @@ class CoreMLBackend(Backend):
              node_set.add(node.op_type)
 
          # unsupported ops remove
-         for node in graph.node:
-             if node.op_type in ['Cast',
-                                 'And',
-                                 'Or',
-                                 'Xor',
-                                 'Not',
-                                 'Less',
-                                 'Greater',
-                                 'Equal',
-                                 'Ceil',
-                                 'Floor']:
-                 return False
+         # for node in graph.node:
+#              if node.op_type in [#'Cast',
+#                                  'And',
+#                                  'Or',
+#                                  'Xor',
+#                                  'Not',
+#                                  'Less',
+#                                  'Greater',
+#                                  'Equal',
+#                                  'Ceil',
+#                                  'Floor']:
+#                  return False
 
          return True
 
