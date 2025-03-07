@@ -1881,7 +1881,7 @@ def _convert_pad(
     elif mode == "edge" or mode == b"edge":
         mode = "replication"
     else:
-        modxe = "constant"
+        mode = "constant"
     params_dict["mode"] = mode
     params_dict["value"] = node.attrs.get("value", 0.0)
 
