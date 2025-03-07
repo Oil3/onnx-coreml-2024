@@ -15,9 +15,9 @@ I need to know what doesn't work so we can fix it, layer per layer.
 I mostly use Ultralytics 'Yolo' models, and there are many other ops I might even not know about. 
 With coremltools 8.1, we can virtually convert everything.
 The three main ideas here are: 
->make a model run -even if that means "resize bicubic" becomes "resize bilinear".
->it has to be easy
->every layer can be manually modified, changed or skipped
+>make a model run -even if that means "resize bicubic" becomes "resize bilinear".  
+>it has to be easy  
+>every layer can be manually modified, changed or skipped  
 
 
 A mac is a mac and it needs to stay comfortable.
