@@ -96,7 +96,7 @@ class CoreMLBackend(Backend):
         # unsupported ops remove
         for node in graph.node:
             if node.op_type in [
-                "Cast",
+               # "Cast",
                 "And",
                 "Or",
                 "Xor",

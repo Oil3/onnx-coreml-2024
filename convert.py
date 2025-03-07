@@ -2,12 +2,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-
+import pdb
 import os
 from onnxx import onnx_pb
 from _converter import convert
 from typing import Text, IO
-from nnBuilderMethods import method_registry
+#from nnBuilderMethods import method_registry
 # coremltoolsx and onnxx are modified versions renamed to prevent conflicts with or from original versions
 # '/usr/bin/python3 convert.py' with macOS' stock Python from /usr/bin/python3 (or a version 3.9)
 #
@@ -39,6 +39,7 @@ def onnx_to_coreml(onnx_model_path: str, output_path: str = None) -> None:
 
 if __name__ == '__main__':
     import sys
+   # pdb.set_trace()
 
     if len(sys.argv) > 1:
         onnx_model_path = sys.argv[1]

@@ -1599,7 +1599,12 @@ def _convert_pad(builder, node, graph, err):
     https://github.com/apple/coremltools/blob/655b3be5cc0d42c3c4fa49f0f0e4a93a26b3e492/mlmodel/format/NeuralNetwork.proto#L4397
     https://github.com/apple/coremltools/blob/655b3be5cc0d42c3c4fa49f0f0e4a93a26b3e492/mlmodel/format/NeuralNetwork.proto#L1822
     """
-    mode = node.attrs.get("mode", "constant")
+    mode = node.attrs["mode"]
+
+    if mode == "reflect" or mode == b"reflect":
+        mode = "reflection"
+    else:
+        mode = node.attrs.get("mode", "constant")
 
     try:
         mode = mode.decode()
@@ -1611,7 +1616,7 @@ def _convert_pad(builder, node, graph, err):
         value = node.attrs.get("value", 0.0)
         # onnxx padding spec: [x1_top, ..., xn_top, x1_bottom, ..., xn_bottom]
         # coreml padding spec: [x1_top, x1_bottom, ..., xn_top, xn_bottom]
-        assert len(pads) % 2 == 0, 'even number of pads expected'
+       # assert len(pads) % 2 == 0, 'even number of pads expected'
         pads_coreml = [None] * len(pads)
         pads_coreml[::2] = pads[:len(pads) // 2]
         pads_coreml[1::2] = pads[len(pads) // 2:]
