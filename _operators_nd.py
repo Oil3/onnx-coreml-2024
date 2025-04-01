@@ -1,4 +1,3 @@
-
 import numpy as np
 import copy
 
@@ -2066,20 +2065,48 @@ def _convert_resize(builder, node, graph, err):
     mode = node.attrs.get('mode', 'nearest')
     input_shape = graph.shape_dict[node.inputs[0]]
     output_shape = graph.shape_dict[node.outputs[0]]
-    if node.inputs[1] not in node.input_tensors:
-    #return err.unsupported_op_configuration(builder, node, graph,
-    #                                       "Scaling factor unknown!! CoreML does not support dynamic scaling for Resize")
-        mode = 'NN'
-        scale = (output_shape[2] // input_shape[2], output_shape[3] // input_shape[3])
-    else:
-        mode = 'NN' if mode == 'nearest' else 'BILINEAR'
-        if scale.size is None:
-            #input_shape = graph.shape_dict[node.inputs[0]]
-            #output_shape = graph.shape_dict[node.outputs[0]]
-            scale = (output_shape[2] // input_shape[2], output_shape[3] // input_shape[3])
-        else:
-            scale = node.input_tensors[node.inputs[1]]
 
+    # Check for inputs providing scales or sizes (opset 11+)
+    scale = None
+    size = None
+    scales_input_name = None
+    sizes_input_name = None
+
+    # ONNX opset 11+ has roi (optional), scales (optional), sizes (optional) as inputs 1, 2, 3
+    if len(node.inputs) > 2:
+        scales_input_name = node.inputs[2]
+        # Check node.input_tensors instead of graph.has_initializer
+        # if scales_input_name != "" and graph.has_initializer(scales_input_name):
+        if scales_input_name != "" and scales_input_name in node.input_tensors:
+            # Get value from node.input_tensors
+            # scale = graph.get_initializer(scales_input_name)
+            scale = node.input_tensors[scales_input_name]
+            print(f"    Resize: Found scales in input_tensors: {scale.shape}")
+        # else: scales might be a dynamic input tensor, not handled here yet.
+
+    if len(node.inputs) > 3:
+        sizes_input_name = node.inputs[3]
+        # Check node.input_tensors instead of graph.has_initializer
+        # if sizes_input_name != "" and graph.has_initializer(sizes_input_name):
+        if sizes_input_name != "" and sizes_input_name in node.input_tensors:
+            # Get value from node.input_tensors
+            # size = graph.get_initializer(sizes_input_name)
+            size = node.input_tensors[sizes_input_name]
+            print(f"    Resize: Found sizes in input_tensors: {size.shape}")
+        # else: sizes might be a dynamic input tensor, not handled here yet.
+
+    # Fallback or opset 10 attributes if inputs weren't found/used
+    if scale is None:
+        scale = node.attrs.get('scales', None)
+        if scale is not None:
+            print(f"    Resize: Using scales attribute: {scale.shape}")
+
+    # Error check: Original code failed here if scale wasn't assigned
+    if scale.size is None:
+        err.feature_warning(node, "Scale factor is missing.")
+        return
+
+    mode = 'NN' if mode == 'nearest' else 'BILINEAR'
     builder.add_upsample(
         name=node.name,
         scaling_factor_h=scale[-2],
