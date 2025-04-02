@@ -43,28 +43,76 @@ INT_MAX = 2 ** 63 - 1
 ## Helper functions
 def load_input_constants(builder, node, graph, err):
     for i in range(len(node.inputs)):
-        if (
-            node.inputs[i] in node.input_tensors
-            and node.inputs[i] not in graph.constants_loaded
-        ):
-            value = node.input_tensors[node.inputs[i]]
-            builder.add_load_constant_nd(
-                name=node.name + "_load_constant_" + str(i),
-                output_name=node.inputs[i],
-                constant_value=value,
-                shape=[1] if value.shape == () else value.shape,
-            )
-            graph.constants_loaded.add(node.inputs[i])
+        inp_name = node.inputs[i]
+        # Check if already loaded
+        if inp_name in graph.constants_loaded:
+            continue
+
+        # Check if the input is directly available as a constant tensor
+        if inp_name in node.input_tensors:
+            value = node.input_tensors[inp_name]
+            # Ensure it hasn't been loaded under a different alias already
+            # (This check might be redundant depending on graph processing order, but safer)
+            if inp_name not in graph.constants_loaded:
+                builder.add_load_constant_nd(
+                    name=node.name + "_load_constant_" + str(i),
+                    output_name=inp_name, # Use the direct input name
+                    constant_value=value,
+                    shape=[1] if value.shape == () else value.shape,
+                )
+                print(f"    Added LoadConstantND for \'{inp_name}\' (Node: {node.name})")
+                graph.constants_loaded.add(inp_name)
+
+        # Check if the input is an alias for a constant tensor (from skipped Identity)
+        elif inp_name in graph.onnx_coreml_name_map: # Alias Check
+            original_name = graph.onnx_coreml_name_map[inp_name]
+
+            # Check if the original tensor's value is available in the GRAPH's initializers map
+            # Assuming graph.initializers holds the mapping from initializer names to numpy arrays
+            if original_name in graph.initializers: # <<< USING graph.initializers
+                value = graph.initializers[original_name] # Get value using original name from graph initializers
+
+                # Ensure the original hasn't been loaded AND the alias hasn't been loaded
+                if original_name not in graph.constants_loaded and inp_name not in graph.constants_loaded:
+                    builder.add_load_constant_nd(
+                        name=node.name + "_load_constant_alias_" + str(i),
+                        output_name=inp_name,  # CRITICAL: Use the ALIAS name as output
+                        constant_value=value, # Use the value found via original name
+                        shape=[1] if value.shape == () else value.shape,
+                    )
+                    print(f"    Added LoadConstantND for alias \'{inp_name}\' (maps to \'{original_name}\') (Node: {node.name})")
+                    # Mark both the alias and original as loaded to prevent duplicates
+                    graph.constants_loaded.add(inp_name)
+                    # Optional: Mark original as loaded too if needed elsewhere,
+                    # but primarily we need to track the alias usage here.
+                    graph.constants_loaded.add(original_name)
+            else:
+                 # This case means the original constant wasn't found in the graph's initializers
+                 print(f"CRITICAL WARNING: Constant value for original name \'{original_name}\' (aliased by \'{inp_name}\') not found in graph.initializers for node {node.name}")
+                 # Consider raising an error or implementing a graph-wide constant lookup if necessary.
 
 
 def _add_conv_like_op(
     add_func, get_params_func, params_dict, builder, node, graph, err
 ):
     rank = builder._get_rank(node.inputs[0])
+    # Use the potentially modified weight name from params_dict if provided
+    # Ensure we don't access node.inputs[1] if it doesn't exist (e.g., for pooling)
+    default_weight = node.inputs[1] if len(node.inputs) > 1 else None
+    weight_input_name = params_dict.get('weight_input_name', default_weight)
+
     if rank == 4:
         get_params_func(builder, node, graph, err, params_dict)
+        # Prepare input list using the correct weight name (if applicable)
+        # op_inputs = [node.inputs[0], weight_input_name] + node.inputs[2:]
+        op_inputs = [node.inputs[0]]
+        if weight_input_name is not None:
+            op_inputs.append(weight_input_name)
+        if len(node.inputs) > 2:
+             op_inputs.extend(node.inputs[2:]) # Add bias/other inputs if they exist
+
         add_func(
-            node.inputs,
+            op_inputs, # Pass potentially modified input list
             node.outputs,
             params_dict=params_dict,
             builder=builder,
@@ -87,8 +135,16 @@ def _add_conv_like_op(
         node.outputs[0] = node.name + "_" + output_name + "_expanded"
         # Add conversion op
         get_params_func(builder, node, graph, err, params_dict, axis="width")
+        # Prepare input list using the correct weight name for the expanded op (if applicable)
+        # op_inputs = [node.inputs[0], weight_input_name] + node.inputs[2:] # Assumes W is always index 1
+        op_inputs = [node.inputs[0]]
+        if weight_input_name is not None:
+            op_inputs.append(weight_input_name)
+        if len(node.inputs) > 2:
+            op_inputs.extend(node.inputs[2:]) # Add bias/other inputs if they exist
+
         add_func(
-            node.inputs,
+            op_inputs, # Pass potentially modified input list
             node.outputs,
             params_dict=params_dict,
             builder=builder,
@@ -640,8 +696,10 @@ def _convert_conv(builder, node, graph, err):
             input_name=W_name,
             output_name=W_name + "_transposed",
         )
-        W_name = W_name + "_transposed"
-        node.inputs[1] = W_name
+        # Store the transposed weight name for _add_conv_like_op to use
+        params_dict['weight_input_name'] = W_name + "_transposed"
+        # W_name = W_name + "_transposed"
+        # node.inputs[1] = W_name # Avoid modifying the node directly here
 
     params_dict["W"] = W
     bias = None
@@ -2808,5 +2866,38 @@ def _get_node_converter_fn(
 def _convert_node_nd(
     builder, node, graph, err
 ):  # type: (NeuralNetworkBuilder, Node, Graph, ErrorHandling) -> None
+
+    op_type = node.op_type
+
+    # Special handling for Identity nodes: record mapping and skip layer
+    if op_type == "Identity":
+        if len(node.inputs) == 0 or len(node.outputs) == 0:
+             print(f"    Skipping Identity node {node.name} with no inputs/outputs")
+             return
+        input_name = node.inputs[0]
+        output_name = node.outputs[0]
+
+        # Initialize the map if it doesn't exist
+        if not hasattr(graph, 'onnx_coreml_name_map'):
+            graph.onnx_coreml_name_map = {}
+            print("    Initialized graph.onnx_coreml_name_map") # Debug print
+
+        # Store the mapping: output_name is an alias for input_name
+        graph.onnx_coreml_name_map[output_name] = input_name
+        print(f"    Skipping Identity node {node.name}: Output '{output_name}' mapped to input '{input_name}'.")
+
+        # Copy shape info if available (still useful)
+        if input_name in graph.shape_dict:
+            graph.shape_dict[output_name] = graph.shape_dict[input_name]
+        return # Skip adding a layer for this node
+
     converter_fn = _get_node_converter_fn(builder, node, err)
-    return converter_fn(builder, node, graph, err)
+
+    if converter_fn is None:
+        return err.unsupported_op(node, graph)
+
+    # Load constants associated with this node's inputs before conversion
+    load_input_constants(builder, node, graph, err)
+
+    # Call the specific converter function for the op_type
+    converter_fn(builder, node, graph, err)

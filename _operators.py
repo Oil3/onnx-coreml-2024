@@ -1,4 +1,3 @@
-
 import numpy as np
 import copy
 
@@ -452,10 +451,12 @@ def _get_conv_params(builder, node, graph, err, params_dict, axis=None):
     params_dict["same_padding_asymmetry_mode"] = "BOTTOM_RIGHT_HEAVY"
 
     if params_dict["W"] is not None:
+        # Transpose weights if data is available (shouldn't happen in the new flow)
         if not params_dict["is_deconv"]:
             params_dict["W"] = params_dict["W"].transpose((2, 3, 1, 0))  # type: ignore
         else:
             params_dict["W"] = params_dict["W"].transpose((2, 3, 0, 1))  # type: ignore
+        # pass # Weights remain untransposed
 
     if "auto_pad" in node.attrs and \
         not (_compare(node.attrs["auto_pad"], 'VALID') or _compare(node.attrs["auto_pad"], 'NOTSET')):
@@ -586,12 +587,11 @@ def _add_conv(input_names, output_names, **kwargs):
         groups=params_dict["groups"],
         W=params_dict["W"],
         b=params_dict["bias"],
-        has_bias=params_dict["bias"] is not None,
+        has_bias=len(node.inputs) > 2,
         is_deconv=params_dict["is_deconv"],
         output_shape=params_dict["out_shape"],
-        input_name=input_names[0]
-        if params_dict["W"] is not None
-        else [input_names[0], input_names[1]],
+        input_name=input_names[0] if params_dict["W"] is not None else 
+                   (input_names[:3] if len(node.inputs) > 2 else input_names[:2]),
         output_name=output_name,
         dilation_factors=params_dict["dilations"],
         padding_top=params_dict["pads"][0],
@@ -616,33 +616,74 @@ def _convert_conv(
     builder, node, graph, err
 ):  # type: (NeuralNetworkBuilder, Node, Graph, ErrorHandling) -> None
     params_dict = dict()
-    # get weights for convolution
-    weight_name = node.inputs[1]
-    W = None
-    if weight_name in node.input_tensors:
-        W = node.input_tensors[weight_name]
-        params_dict["w_shape"] = W.shape
-    else:
-        err.missing_initializer(
-            node,
-            "Weight tensor: {} not found in the graph initializer".format(weight_name,),
-        )
-    params_dict["W"] = W
-
-    params_dict["is_deconv"] = False
-    if node.op_type.endswith("Transpose"):
-        params_dict["is_deconv"] = True
-    bias = None
-    if len(node.inputs) > 2:
-        bias = node.input_tensors[node.inputs[2]]
-    params_dict["bias"] = bias
+    params_dict["is_deconv"] = node.op_type.endswith("Transpose")
     params_dict["groups"] = node.attrs.get("group", 1)
 
+    # Don't load W and bias here, assume _add_const_inputs_if_required did it.
+    params_dict["W"] = None 
+    params_dict["bias"] = None
+
+    # Weight and bias initializers might be accessed by their original names
+    # when CoreML generates internal layers like Conv_w_transpose
+    weight_name = node.inputs[1]
+    bias_name = node.inputs[2] if len(node.inputs) > 2 else None
+    
+    # Get effective names (after Identity removal)
+    effective_weight_name = graph.onnx_coreml_name_map.get(weight_name, weight_name)
+    
+    # Handle direct loading for weights with special care for Identity-remapped tensors
+    if effective_weight_name in graph.initializers:
+        # Get tensor data
+        weight_tensor = graph.initializers[effective_weight_name]
+        
+        # Make sure both names are loaded as constants
+        if weight_name != effective_weight_name:
+            # Load with original name for CoreML's internal Conv_w_transpose layer
+            if weight_name not in graph.loaded_constants:
+                print(f"    Adding original weight name '{weight_name}' for Conv_w_transpose (Node: {node.name})")
+                builder.add_load_constant_nd(
+                    name=weight_name,
+                    output_name=weight_name,
+                    constant_value=weight_tensor,
+                    shape=weight_tensor.shape,
+                )
+                if hasattr(graph, 'loaded_constants'):
+                    graph.loaded_constants.add(weight_name)
+                    
+        # Still need the original weight shape for _get_conv_params
+        params_dict["w_shape"] = weight_tensor.shape
+    else:
+        # This case should ideally not happen if weights are required initializers
+        return err.missing_initializer(
+            node, f"Weight tensor '{weight_name}' (effective: '{effective_weight_name}') not found in initializers for Conv/ConvTranspose shape check."
+        )
+
+    # Same for bias if it exists
+    if bias_name:
+        effective_bias_name = graph.onnx_coreml_name_map.get(bias_name, bias_name)
+        if effective_bias_name in graph.initializers and bias_name != effective_bias_name:
+            bias_tensor = graph.initializers[effective_bias_name]
+            # Load with original name for potential internal CoreML layers
+            if bias_name not in graph.loaded_constants:
+                print(f"    Adding original bias name '{bias_name}' for Conv (Node: {node.name})")
+                builder.add_load_constant_nd(
+                    name=bias_name,
+                    output_name=bias_name,
+                    constant_value=bias_tensor,
+                    shape=bias_tensor.shape,
+                )
+                if hasattr(graph, 'loaded_constants'):
+                    graph.loaded_constants.add(bias_name)
+
+    # Get parameters (kernel_shape, strides, pads, dilations) but W will be None, so no transpose here.
+    _get_conv_params(builder, node, graph, err, params_dict)
+
+    # Add the convolution layer - _add_conv will request inputs since W is None
     _add_conv_like_op(
         _add_conv, _get_conv_params, params_dict, builder, node, graph, err
     )
 
-    # update map
+    # update map (output shape mapping)
     _update_shape_mapping_unchanged(node, graph, err)
 
 
@@ -2445,65 +2486,31 @@ def _convert_custom(
 def _convert_identity(
     builder, node, graph, err
 ):  # type: (NeuralNetworkBuilder, Node, Graph, ErrorHandling) -> None
-    builder.add_activation(
-        name=node.name,
-        non_linearity="LINEAR",
-        input_name=node.inputs[0],
-        output_name=node.outputs[0],
-        params=[1.0, 0.0],
-    )
-    if _is_input_shape_mapping_defined(node, graph):
-        mapp = graph.onnx_coreml_shape_mapping[node.inputs[0]]
-        mapp_out = []
-        if node.op_type == "Squeeze":
-            axes = node.attrs.get("axes", None)
-            if axes is None:
-                if node.inputs[0] not in graph.shape_dict:
-                    return err.unsupported_op_configuration(
-                        builder, node, graph, "shape not known"
-                    )
-                else:
-                    ishape = graph.shape_dict[node.inputs[0]]
-                    if ishape.count(1) == len(ishape):
-                        mapp_out = [2]
-                    else:
-                        for i, d in enumerate(ishape):
-                            if d != 1:
-                                mapp_out.append(mapp[i])
-            else:
-                for i, a in enumerate(mapp):
-                    if i in axes:
-                        continue
-                    else:
-                        mapp_out.append(a)
-                if len(mapp_out) == 0:
-                    mapp_out = [2]
-        elif node.op_type == "Unsqueeze":
-            axes = node.attrs["axes"]
-            available_set = [0, 1, 2, 3, 4]
-            for d in mapp:
-                if d in available_set:
-                    available_set.remove(d)
-            if len(axes) > len(available_set):
-                return err.unsupported_op_configuration(
-                    builder,
-                    node,
-                    graph,
-                    "cannot unsqueeze to a dimension greater than 5",
-                )
-            mapp_out = [1] * (len(axes) + len(mapp))
-            mapp_ptr = 0
-            available_set_ptr = 0
-            for i in range(len(mapp_out)):
-                if i in axes:
-                    mapp_out[i] = available_set[available_set_ptr]
-                    available_set_ptr += 1
-                else:
-                    mapp_out[i] = mapp[mapp_ptr]
-                    mapp_ptr += 1
-        else:
-            raise ValueError("convert_identity incorrectly called")
-        graph.onnx_coreml_shape_mapping[node.outputs[0]] = mapp_out
+    input_name = node.inputs[0]
+    output_name = node.outputs[0]
+
+    # Find the effective input name (in case previous Identities changed it)
+    effective_input_name = graph.onnx_coreml_name_map.get(input_name, input_name)
+
+    # Check if the original input is an initializer
+    is_initializer = input_name in graph.initializers
+
+    # Map the original output name to the effective input name
+    graph.onnx_coreml_name_map[output_name] = effective_input_name
+    # Also populate the reverse map
+    graph.coreml_onnx_name_map[effective_input_name] = output_name
+
+    print(f"    Skipping Identity node {node.name}: Output '{output_name}' mapped to input '{effective_input_name}'. Initializer: {is_initializer}")
+
+    # We don't actually add a layer, just update the name mapping.
+    # If the input was an initializer, the actual constant loading happens
+    # in _add_const_inputs_if_required when a node *uses* this output.
+    # Update shape mapping if necessary
+    if input_name in graph.onnx_coreml_shape_mapping:
+        graph.onnx_coreml_shape_mapping[output_name] = graph.onnx_coreml_shape_mapping[input_name]
+
+    if input_name in graph.shape_dict:
+        graph.shape_dict[output_name] = graph.shape_dict[input_name]
 
 
 def _convert_const(
@@ -2666,9 +2673,69 @@ def _get_node_converter_fn(
 def _add_const_inputs_if_required(
     builder, node, graph, err
 ):  # type: (NeuralNetworkBuilder, Node, Graph, ErrorHandling) -> None
-    if node.op_type in _CONST_INPUT_ALLOWED_LAYERS:
-        if len(node.input_tensors) > 0:
-            _convert_const(builder, node, graph, err)
+    if not hasattr(graph, 'loaded_constants'):
+        graph.loaded_constants = set()  # Track constants we've already loaded
+
+    for input_name in node.inputs:
+        # For Conv layers, we need special handling for weights that might be accessed by both 
+        # original and remapped names
+        input_is_weight = node.op_type in ['Conv', 'ConvTranspose'] and node.inputs.index(input_name) == 1
+
+        # Determine the effective name (what CoreML expects after Identity removal)
+        effective_name = graph.onnx_coreml_name_map.get(input_name, input_name)
+        
+        # Determine the original ONNX name (needed to check graph.initializers)
+        # Default to effective_name if no reverse mapping exists (no Identity involved)
+        original_name = graph.coreml_onnx_name_map.get(effective_name, effective_name)
+        
+        was_remapped = (original_name != input_name)
+
+        # Check if the *original* name corresponds to an initializer tensor
+        if original_name in graph.initializers:
+            # Original name is an initializer, get the tensor
+            tensor = graph.initializers[original_name]
+            
+            # If neither name has been loaded yet, load it
+            if input_name not in graph.loaded_constants and effective_name not in graph.loaded_constants:
+                # For weights in Conv layers that were remapped via Identity, we need to load BOTH the original and effective names
+                # This is because CoreML might look up the weight by either name
+                if input_is_weight and was_remapped:
+                    # Load the constant with the original name
+                    print(f"    Added LoadConstantND for '{input_name}' (Original tensor, Node: {node.name})")
+                    builder.add_load_constant_nd(
+                        name=input_name,
+                        output_name=input_name,
+                        constant_value=tensor,
+                        shape=tensor.shape,
+                    )
+                    graph.loaded_constants.add(input_name)
+                    
+                    # Then also load it with the effective name
+                    print(f"    Added LoadConstantND for '{effective_name}' (Remapped tensor, Node: {node.name})")
+                    builder.add_load_constant_nd(
+                        name=effective_name,
+                        output_name=effective_name,
+                        constant_value=tensor,
+                        shape=tensor.shape,
+                    )
+                    graph.loaded_constants.add(effective_name)
+                else:
+                    # Regular case - load with the effective name
+                    print(f"    Added LoadConstantND for '{effective_name}' (Original: '{original_name}', Node: {node.name})")
+                    builder.add_load_constant_nd(
+                        name=effective_name,
+                        output_name=effective_name,
+                        constant_value=tensor,
+                        shape=tensor.shape,
+                    )
+                    graph.loaded_constants.add(effective_name)
+            else:
+                if input_name in graph.loaded_constants:
+                    print(f"    Constant '{input_name}' already loaded for Node: {node.name}")
+                else:
+                    print(f"    Constant '{effective_name}' already loaded for Node: {node.name}")
+        # else:
+        #     print(f"    Input '{input_name}' (Effective: '{effective_name}', Original: '{original_name}') not an initializer for Node: {node.name}")
 
 
 def _convert_node(
